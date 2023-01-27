@@ -1,9 +1,7 @@
 # Linux Loot
-___
 This script collects juicy loot from remote linux machines
 
 ## How to launch
-___
 ### 1. Clone original repo
 git clone https://github.com/pAndaa2/Linux_Loot.git
 
