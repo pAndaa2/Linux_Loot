@@ -9,4 +9,4 @@ git clone https://github.com/pAndaa2/Linux_Loot.git
 cd Lunux_Loot_Collector
 
 ### 3. Run
-python3 Linux_Loot_Collector.py
+python3 Linux_Loot_Collector.py -f <file_targets.txt> (--brute=True/False)
